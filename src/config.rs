@@ -1,16 +1,16 @@
-use crate::prelude::*;
+use crate::{ prelude::*, Bind };
 use std::fs;
 
 /// The application config
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default, skip_serializing, skip_deserializing)]
     path: PathBuf,
 
     pub com_port: usize,
     pub baud_rate: usize,
-    
-    pub audio_devices: Vec<String>,
+
+    pub binds: HashMap<String, Bind>,
 }
 
 impl Config {
@@ -19,16 +19,16 @@ impl Config {
     
     /// Reads/writes config file
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Arc<Mutex<Self>>> {
-        let path = crate::root_path(path)?;
+        let root_path = crate::root_path(&path)?;
         
         // reading config file:
-        let config = if path.exists() {
+        let config = if root_path.exists() {
             Config::read(path)?
         }
         // or writing default config file:
         else {
             let mut cfg = Config::default();
-            cfg.save_to(path)?;
+            cfg.save_to(root_path)?;
 
             cfg
         };
@@ -56,8 +56,8 @@ impl Config {
     }
 
     /// Saves config to file
-    pub fn save_to<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
-        self.path = crate::root_path(path)?;
+    fn save_to<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
+        self.path = path.as_ref().to_path_buf();
         
         // to json string:
         let json_str = serde_json::to_string_pretty(self)?;
@@ -82,7 +82,7 @@ impl ::std::default::Default for Config {
             com_port: 8,
             baud_rate: 9600,
 
-            audio_devices: vec![str!("Speakers"), str!("Headphones")]
+            binds: hash_map!{},
         }
     }
 }

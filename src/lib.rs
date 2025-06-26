@@ -6,7 +6,8 @@ pub mod prelude;    use prelude::*;
 pub static LOGGER: Lazy<Logger> = Lazy::new(|| Logger::new());
 pub static CONFIG: Lazy<Arc<Mutex<Config>>> = Lazy::new(|| Config::new("config.json").unwrap_or_default());
 
-pub mod emulator;   pub use emulator::{ Keyboard, Audio, Device };
+pub mod emulator;   pub use emulator::{ Keyboard, Key, Media, Device, DeviceKind };
+pub mod binds;      pub use binds::{ Bind, Action };
 
 /// Generates path by program root path 
 pub fn root_path<P: AsRef<Path>>(relative_path: P) -> Result<PathBuf> {

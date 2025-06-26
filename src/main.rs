@@ -1,35 +1,181 @@
-use app::{ prelude::*, Keyboard, Audio, Device };
+use app::{ prelude::*, Bind, Action, Keyboard, Media, Device };
+use core::time::Duration;
+use std::{ io::{ BufReader, BufRead }, process::Command };
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    run().await?;
+    Ok(())
+}
+
+async fn run() -> Result<()> {
     // init logger:
     log::set_logger(&*LOGGER).map_err(Error::from)?;
     log::set_max_level(log::LevelFilter::Info);
     
     // init config:
     CONFIG.lock().await.init();
-    // let cfg = CONFIG.lock().await.clone();
-    
-    // init volume controller:
-    let audio = Audio::new(
-        root_path("/bin/svv/svv.exe")?,
-        root_path("/bin/svcl/svcl.exe")?
-    )?;
-    // init keyboard:
-    // let mut keyboard = Keyboard::new()?;
+    let cfg = CONFIG.lock().await.clone();
 
-    info!("Found audio device list: \n{}",
-        audio.get_devices().await?.into_iter()
+    // init media controller:
+    let mut media = Media::new(root_path("/bin")?, Some(|name| !name.contains("SteelSeries"))).await?;
+
+    // init keyboard:
+    let mut keyboard = Keyboard::new()?;
+
+    // print audio device list:
+    info!("Audio device list: \n{}",
+        media.get_devices().iter()
             .enumerate()
             .map(|(i, Device { name, kind, is_active })|
-                fmt!("{i}. '{name}' — {kind}{}", if is_active {" (active)"}else{""})
+                fmt!("{i}. '{name}' — {kind}{}", if *is_active {" (active)"}else{""})
             )
             .collect::<Vec<_>>()
             .join("\n")
     );
 
-    dbg!(audio.get_media_volume().await?);
-    dbg!(audio.set_media_volume(50).await?);
+    let port_name = fmt!("COM{}", cfg.com_port);
+    let baud_rate = cfg.baud_rate as u32;
+
+    let port = serialport::new(&port_name, baud_rate)
+        .timeout(Duration::from_millis(10))
+        .open()?;
+
+    let mut com_reader = BufReader::new(port);
+    let mut line = String::new();
+
+    let binds = cfg.binds;
+    let mut last_code = str!();
+    let mut last_action = Instant::now();
+    let mut last_update = Instant::now();
+    let action_interval = Duration::from_millis(1000);
+    let update_interval = Duration::from_millis(2000);
+    let repeat_timeout = Duration::from_millis(25);
+
+    info!("Reading remote inputs..");
+    
+    loop {
+        line.clear();
+
+        if last_action.elapsed() >= action_interval && last_update.elapsed() >= update_interval {
+            media.update_info().await?;
+            last_update = Instant::now();
+        }
+
+        match com_reader.read_line(&mut line) {
+            Ok(0) => continue,
+            Ok(_) => {
+                let code = line.trim().to_uppercase();
+                if code.is_empty() { continue }
+
+                // repeat last bind:
+                if code == "FFFFFFFF" {
+                    if last_action.elapsed() < repeat_timeout {
+                        continue;
+                    }
+                    
+                    if last_code.is_empty() { continue }
+
+                    if let Err(e) = execute_bind(binds.get(&last_code).unwrap(), &mut media, &mut keyboard, true).await {
+                        err!("Error with executing bind: {e}");
+                    }
+                } else {
+                    // execute exists bind:
+                    if let Some(bind) = binds.get(&code) {
+                        info!("Pressed button '{code}', executing bind '{}'.", bind.name);
+
+                        last_code = if bind.repeat { code }else{ str!() };
+                        
+                        if let Err(e) = execute_bind(bind, &mut media, &mut keyboard, false).await {
+                            err!("Error with executing bind: {e}");
+                        }
+                    }
+                    // unbinded code:
+                    else {
+                        info!("Pressed button '{code}', no binds exists..");
+                        last_code = str!();
+                    }
+                }
+
+                last_action = Instant::now();
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => continue,
+            Err(e) => {
+                err!("Error with reading '{port_name}' port: {e}");
+                return Err(e.into());
+            }
+        }
+    }
+}
+
+/// Execute remote bind
+async fn execute_bind(bind: &Bind, media: &mut Media, keyboard: &mut Keyboard, is_repeated: bool) -> Result<()> {
+    match &bind.action {
+        // execute special handler:
+        Action::Handler { handler: name } => {
+            match name.as_ref() {
+                "switch_audio_device" => {
+                    media.switch_next_audio_device().await?;
+                }
+
+                "increase_audio_volume" => {
+                    media.increase_audio_volume(if !is_repeated { 1 }else{ 5 }).await?;
+                }
+
+                "decrease_audio_volume" => {
+                    media.decrease_audio_volume(if !is_repeated { 1 }else{ 5 }).await?;
+                }
+
+                "mute_unmute" => {
+                    media.switch_audio_mute().await?;
+                    media.switch_micro_mute().await?;
+                }
+
+                "sleep_mode" => {
+                    let status = Command::new("rundll32.exe")
+                        .arg("powrprof.dll,SetSuspendState")
+                        .arg("0")
+                        .arg("1")
+                        .arg("0")
+                        .status()?;
+
+                    if status.success() {
+                        info!("PC switched to sleep mode");
+                    } else {
+                        err!("Failed switch PC to sleep mode");
+                    }
+                }
+                
+                _ => err!("Unknown handler with name '{name}'")
+            }
+        },
+
+        // press keyboard shortcut:
+        Action::Shortcut { shortcut: keys } => {
+            for key in keys {
+                keyboard.hold(key).await?;
+            }
+
+            sleep(Duration::from_millis(100)).await;
+
+            for key in keys {
+                keyboard.release(key).await?;
+            }
+        },
+
+        // press keyboard key:
+        Action::Press { press: keys } => {
+            for key in keys {
+                keyboard.press(key).await?;
+            }
+        },
+
+        // open website:
+        Action::Open { open: url } => {
+            let url = if url.starts_with("https:") { url }else{ &fmt!("https://{url}") };
+            webbrowser::open(url)?;
+        },
+    }
 
     Ok(())
 }

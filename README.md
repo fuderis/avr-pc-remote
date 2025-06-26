@@ -1,11 +1,11 @@
-# ..
+# PC Remote
 
-..
+PC control panel based on 'Arduino Nano' board.
 
 
 ## Licensing:
 
-Distributed under the Proprietary License.
+Distributed under the MIT License.
 
 
 ## Feedback:

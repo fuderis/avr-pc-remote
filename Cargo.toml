@@ -1,9 +1,9 @@
 [package]
-name = "pc-remote"
-description = ""
+name = "avr-pc-remote"
+description = "PC control panel based on 'Arduino Nano' board"
 version = "0.1.0"
 authors = ["Bulat Sh. <t.me/fuderis>"]
-license = "Proprietary License"
+license = "MIT"
 readme = "README.md"
 edition = "2024"
 

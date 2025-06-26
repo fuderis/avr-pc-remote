@@ -18,5 +18,6 @@ pub use std::path::{ Path, PathBuf };
 pub use std::sync::Arc;
 pub use std::sync::Mutex as StdMutex;
 pub use std::time::Duration;
+pub use std::time::Instant;
 pub use tokio::time::sleep;
 pub use tokio::sync::Mutex;

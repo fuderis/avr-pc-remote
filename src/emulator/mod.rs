@@ -1,2 +1,2 @@
-pub mod keyboard;   pub use keyboard::Keyboard;
-pub mod audio;      pub use audio::{ Audio, Device };
+pub mod keyboard;   pub use keyboard::{ Keyboard, Key };
+pub mod media;      pub use media::{ Media, Device, DeviceKind };

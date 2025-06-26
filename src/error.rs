@@ -27,8 +27,8 @@ pub enum Error {
     FailedReadDevicesList,
 
     #[display = "Found no audio device named as '{0}'"]
-    InvalidDeviceName(String),
+    DeviceNotFound(String),
 
     #[display = "Found no active audio device"]
-    FoundNoActiveDevice,
+    ActiveDeviceNotFound,
 }
