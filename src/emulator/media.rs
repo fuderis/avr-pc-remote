@@ -72,7 +72,7 @@ impl Media {
         self.update_devices_info().await?;
         self.update_volume_info().await?;
         
-        info!("Media info updated!");
+        // info!("Media info updated!");
 
         Ok(())
     }
