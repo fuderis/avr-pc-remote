@@ -31,4 +31,7 @@ pub enum Error {
 
     #[display = "Found no active audio device"]
     ActiveDeviceNotFound,
+
+    #[display = "Failed to change audio volume"]
+    FailedSetVolume,
 }

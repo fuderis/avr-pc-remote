@@ -41,7 +41,7 @@ pub struct Media {
     device_filter: Option<DeviceFilter>,
     devices: Vec<Device>,
     active: Option<Device>,
-    volume: usize,
+    volume: i32,
 }
 
 impl Media {
@@ -319,7 +319,7 @@ impl Media {
     }
 
     /// Get current audio volume (0-100)
-    pub async fn get_audio_volume(&self) -> Result<usize> {
+    pub async fn get_audio_volume(&self) -> Result<i32> {
         let device = self.active.as_ref().ok_or(Error::ActiveDeviceNotFound)?;
 
         let status = Command::new(&self.svcl_path)
@@ -329,13 +329,13 @@ impl Media {
 
         let code = status.code().unwrap_or(0);
         
-        let volume = code as usize / 10;
+        let volume = code / 10;
 
         Ok(volume)
     }
 
     /// Set audio volume (0-100)
-    pub async fn set_audio_volume(&mut self, volume: usize) -> Result<()> {
+    pub async fn set_audio_volume(&mut self, volume: i32) -> Result<i32> {
         let sys_volume = (volume * 65535) / 100;
         
         let status = Command::new(&self.nircmd_path)
@@ -344,23 +344,22 @@ impl Media {
             .status()?;
         
         if status.success() {
-            info!("Set audio volume to {}%", volume);
             self.volume = volume;
         } else {
-            err!("Failed to set audio volume");
+            return Err(Error::FailedSetVolume.into());
         }
         
-        Ok(())
+        Ok(self.volume)
     }
 
     /// Increase audio volume by delta
-    pub async fn increase_audio_volume(&mut self, delta: usize) -> Result<()> {
+    pub async fn increase_audio_volume(&mut self, delta: i32) -> Result<i32> {
         let new_volume = (self.volume + delta).min(100);
         self.set_audio_volume(new_volume).await
     }
 
     /// Decrease audio volume by delta
-    pub async fn decrease_audio_volume(&mut self, delta: usize) -> Result<()> {
+    pub async fn decrease_audio_volume(&mut self, delta: i32) -> Result<i32> {
         let new_volume = self.volume.saturating_sub(delta);
         self.set_audio_volume(new_volume).await
     }
@@ -368,7 +367,6 @@ impl Media {
     /// Toggle audio mute/unmute
     pub async fn switch_audio_mute(&self) -> Result<()> {
         let device = self.active.as_ref().ok_or(Error::ActiveDeviceNotFound)?;
-        dbg!(&device);
 
         let status = Command::new(&self.svv_path)
             .arg("/Switch")
@@ -376,7 +374,7 @@ impl Media {
             .status()?;
         
         if status.success() {
-            info!("Toggled mute for '{}'", device.name);
+            info!("Media device '{}' muted/unmuted", device.name);
         } else {
             err!("Failed to toggle mute");
         }
@@ -393,7 +391,7 @@ impl Media {
             .status()?;
         
         if status.success() {
-            info!("Toggled mute for microphone '{}'", device.name);
+            info!("Media device '{}' muted/unmuted", device.name);
         } else {
             err!("Failed to toggle microphone mute");
         }

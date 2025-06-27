@@ -153,7 +153,7 @@ pub enum Key {
     #[serde(untagged)]
     Unicode(char),
     #[serde(untagged)]
-    Number(u32),
+    Other(u32),
 }
 
 impl ::std::convert::Into<EnigoKey> for Key {
@@ -280,7 +280,7 @@ impl ::std::convert::Into<EnigoKey> for Key {
             Self::VolumeMute => EnigoKey::VolumeMute,
             Self::VolumeUp => EnigoKey::VolumeUp,
             Self::Unicode(ch) => EnigoKey::Unicode(ch),
-            Self::Number(num) => EnigoKey::Other(num),
+            Self::Other(num) => EnigoKey::Other(num),
             _ => todo!()
         }
     }
@@ -303,57 +303,33 @@ impl Keyboard {
     }
 
     /// Press a keyboard key
-    pub async fn press(&self, key: &Key) -> Result<()> {
-        self.enigo.lock().await.key(key.clone().into(), Direction::Click)?;
+    pub async fn press(&self, key: &Key, hold: bool) -> Result<()> {
+        self.enigo.lock().await.key(key.clone().into(), if hold { Direction::Press }else{ Direction::Click })?;
 
         Ok(())
     }
 
-    /// Press a 2 keyboard keys
-    pub async fn press2(&self, key1: &Key, key2: &Key) -> Result<()> {
-        let key1: EnigoKey = key1.clone().into();
-        let key2: EnigoKey = key2.clone().into();
-        
-        self.enigo.lock().await.key(key1, Direction::Press)?;
-        self.enigo.lock().await.key(key1, Direction::Press)?;
-
-        sleep(Duration::from_millis(100)).await;
-
-        self.enigo.lock().await.key(key1, Direction::Release)?;
-        self.enigo.lock().await.key(key2, Direction::Release)?;
+    /// Press an keyboard keys at the same time
+    pub async fn press_all(&self, keys: &[Key], hold: bool) -> Result<()> {
+        for key in keys {
+            self.enigo.lock().await.key(key.clone().into(), if hold { Direction::Press }else{ Direction::Click })?;
+        }
 
         Ok(())
     }
 
-    /// Press a 3 keyboard keys
-    pub async fn press3(&self, key1: &Key, key2: &Key, key3: &Key) -> Result<()> {
-        let key1: EnigoKey = key1.clone().into();
-        let key2: EnigoKey = key2.clone().into();
-        let key3: EnigoKey = key3.clone().into();
-        
-        self.enigo.lock().await.key(key1, Direction::Press)?;
-        self.enigo.lock().await.key(key2, Direction::Press)?;
-        self.enigo.lock().await.key(key3, Direction::Press)?;
-
-        sleep(Duration::from_millis(100)).await;
-
-        self.enigo.lock().await.key(key1, Direction::Release)?;
-        self.enigo.lock().await.key(key2, Direction::Release)?;
-        self.enigo.lock().await.key(key3, Direction::Release)?;
-
-        Ok(())
-    }
-    
-    /// Press hold a keyboard key
-    pub async fn hold(&self, key: &Key) -> Result<()> {
-        self.enigo.lock().await.key(key.clone().into(), Direction::Press)?;
-
-        Ok(())
-    }
-
-    /// Release a keyboard key
+    /// Release a keyboard key (if it's hold)
     pub async fn release(&self, key: &Key) -> Result<()> {
         self.enigo.lock().await.key(key.clone().into(), Direction::Release)?;
+
+        Ok(())
+    }
+
+    /// Release an keyboard keys at the same time (if it's hold)
+    pub async fn release_all(&self, keys: &[Key]) -> Result<()> {
+        for key in keys {
+            self.enigo.lock().await.key(key.clone().into(), Direction::Release)?;
+        }
 
         Ok(())
     }

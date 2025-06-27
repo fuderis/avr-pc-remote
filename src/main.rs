@@ -1,4 +1,4 @@
-use app::{ prelude::*, Bind, Action, Keyboard, Media, Device };
+use app::{ prelude::*, Bind, Action, Keyboard, Key, Mouse, Media, Device };
 use core::time::Duration;
 use std::{ io::{ BufReader, BufRead }, process::Command };
 
@@ -22,6 +22,9 @@ async fn run() -> Result<()> {
 
     // init keyboard:
     let mut keyboard = Keyboard::new()?;
+
+    // init mouse:
+    let mut mouse = Mouse::new()?;
 
     // print audio device list:
     info!("Audio device list: \n{}",
@@ -57,8 +60,12 @@ async fn run() -> Result<()> {
     loop {
         line.clear();
 
-        if last_action.elapsed() >= action_interval && last_update.elapsed() >= update_interval {
-            media.update_info().await?;
+        if last_action.elapsed() >= action_interval {
+            if last_update.elapsed() >= update_interval {
+                media.update_info().await?;
+                last_update = Instant::now();
+            }
+        } else {
             last_update = Instant::now();
         }
 
@@ -76,23 +83,23 @@ async fn run() -> Result<()> {
                     
                     if last_code.is_empty() { continue }
 
-                    if let Err(e) = execute_bind(binds.get(&last_code).unwrap(), &mut media, &mut keyboard, true).await {
+                    if let Err(e) = execute_bind(binds.get(&last_code).unwrap(), &mut media, &mut keyboard, &mut mouse, true).await {
                         err!("Error with executing bind: {e}");
                     }
                 } else {
                     // execute exists bind:
                     if let Some(bind) = binds.get(&code) {
-                        info!("Pressed button '{code}', executing bind '{}'.", bind.name);
+                        info!("Pressed '{code}', bind '{}'.", bind.name);
 
                         last_code = if bind.repeat { code }else{ str!() };
                         
-                        if let Err(e) = execute_bind(bind, &mut media, &mut keyboard, false).await {
+                        if let Err(e) = execute_bind(bind, &mut media, &mut keyboard, &mut mouse, false).await {
                             err!("Error with executing bind: {e}");
                         }
                     }
                     // unbinded code:
                     else {
-                        info!("Pressed button '{code}', no binds exists..");
+                        info!("Pressed '{code}', no binds exists..");
                         last_code = str!();
                     }
                 }
@@ -108,30 +115,168 @@ async fn run() -> Result<()> {
     }
 }
 
+static MENU_MODE: Lazy<Mutex<u8>> = Lazy::new(|| Mutex::new(0));
+const MOUSE_STEPS: (i32, i32) = (20, 50);
+const SCROLL_STEPS: (i32, i32) = (2, 5);
+const VOLUME_STEPS: (i32, i32) = (3, 7);
+
 /// Execute remote bind
-async fn execute_bind(bind: &Bind, media: &mut Media, keyboard: &mut Keyboard, is_repeated: bool) -> Result<()> {
+async fn execute_bind(bind: &Bind, media: &mut Media, keyboard: &mut Keyboard, mouse: &mut Mouse, is_repeated: bool) -> Result<()> {
     match &bind.action {
         // execute special handler:
         Action::Handler { handler: name } => {
             match name.as_ref() {
-                "switch_audio_device" => {
+                "switch-audio" => {
                     media.switch_next_audio_device().await?;
                 }
 
-                "increase_audio_volume" => {
-                    media.increase_audio_volume(if !is_repeated { 1 }else{ 5 }).await?;
-                }
-
-                "decrease_audio_volume" => {
-                    media.decrease_audio_volume(if !is_repeated { 1 }else{ 5 }).await?;
-                }
-
-                "mute_unmute" => {
+                "mute-unmute" => {
                     media.switch_audio_mute().await?;
                     media.switch_micro_mute().await?;
                 }
 
-                "sleep_mode" => {
+                "navigation" => {
+                    let mut mode = MENU_MODE.lock().await;
+
+                    if *mode >= 2 {
+                        *mode = 0;
+                    } else {
+                        *mode += 1;
+                    }
+
+                    match *mode {
+                        0 => info!("Switched to media mode"),
+                        1 => info!("Switched to mouse emulation mode"),
+                        2 => info!("Switched to selector mode"),
+
+                        _ => err!("Unknown menu mode")
+                    }
+                }
+                "nav-left" => {
+                    match *MENU_MODE.lock().await {
+                        0 => {
+                            let volume = media.decrease_audio_volume(if !is_repeated { VOLUME_STEPS.1 }else{ VOLUME_STEPS.0 }).await?;
+                            info!("Set audio volume to {volume}%");
+                        }
+
+                        1 => {
+                            let step: i32 = if is_repeated { MOUSE_STEPS.1 }else{ MOUSE_STEPS.0 };
+                            mouse.move_x(-step)?;
+                            info!("Move mouse left by {step}px", );
+                        }
+
+                        2 => {
+                            keyboard.press_all(&[Key::Shift, Key::Tab], true).await?;
+                            sleep(Duration::from_millis(100)).await;
+                            keyboard.release_all(&[Key::Shift, Key::Tab]).await?;
+                            info!("Selected previous element");
+                        }
+
+                        _ => err!("Unknown menu mode")
+                    }
+                }
+                "nav-right" => {
+                    match *MENU_MODE.lock().await {
+                        0 => {
+                            let volume = media.increase_audio_volume(if !is_repeated { VOLUME_STEPS.1 }else{ VOLUME_STEPS.0 }).await?;
+                            info!("Set audio volume to {volume}%");
+                        }
+
+                        1 => {
+                            let step: i32 = if is_repeated { MOUSE_STEPS.1 }else{ MOUSE_STEPS.0 };
+                            mouse.move_x(step)?;
+                            info!("Move mouse right by {step}px", );
+                        }
+
+                        2 => {
+                            keyboard.press(&Key::Tab, true).await?;
+                            info!("Selected next element");
+                        }
+
+                        _ => err!("Unknown menu mode")
+                    }
+                }
+                "nav-up" => {
+                    match *MENU_MODE.lock().await {
+                        0 => {
+                            if !is_repeated {
+                                keyboard.press(&Key::MediaNextTrack, false).await?;
+                                info!("Switched to next track");
+                            }
+                        }
+
+                        1 => {
+                            let step: i32 = if is_repeated { MOUSE_STEPS.1 }else{ MOUSE_STEPS.0 };
+                            mouse.move_y(-step)?;
+                            info!("Move mouse top by {step}px", );
+                        }
+
+                        2 => {
+                            keyboard.press_all(&[Key::Shift, Key::Tab], true).await?;
+                            sleep(Duration::from_millis(100)).await;
+                            keyboard.release_all(&[Key::Shift, Key::Tab]).await?;
+                            info!("Selected previous element");
+                        }
+
+                        _ => err!("Unknown menu mode")
+                    }
+                }
+                "nav-down" => {
+                    match *MENU_MODE.lock().await {
+                        0 => {
+                            if !is_repeated {
+                                keyboard.press(&Key::MediaPrevTrack, false).await?;
+                                info!("Switched to previos track");
+                            }
+                        }
+
+                        1 => {
+                            let step: i32 = if is_repeated { MOUSE_STEPS.1 }else{ MOUSE_STEPS.0 };
+                            mouse.move_y(step)?;
+                            info!("Move mouse bottom by {step}px", );
+                        }
+                        
+                        2 => {
+                            keyboard.press(&Key::Tab, true).await?;
+                            info!("Selected next element");
+                        }
+
+                        _ => err!("Unknown menu mode")
+                    }
+                }
+                "nav-center" => {
+                    match *MENU_MODE.lock().await {
+                        0 => {
+                            keyboard.press(&Key::MediaPlayPause, false).await?;
+                            info!("Switched media play/pause");
+                        }
+
+                        1 => {
+                            mouse.press_left(false)?;
+                            info!("Pressed left mouse button");
+                        }
+
+                        2 => {
+                            keyboard.press(&Key::Enter, false).await?;
+                            info!("Pressed enter button");
+                        }
+
+                        _ => err!("Unknown menu mode")
+                    }
+                }
+
+                "scroll-up" => {
+                    let step: i32 = if is_repeated { SCROLL_STEPS.1 }else{ SCROLL_STEPS.0 };
+                    mouse.scroll_y(-step)?;
+                    info!("Scroll up by {step}px");
+                }
+                "scroll-down" => {
+                    let step: i32 = if is_repeated { SCROLL_STEPS.1 }else{ SCROLL_STEPS.0 };
+                    mouse.scroll_y(step)?;
+                    info!("Scroll down by {step}px");
+                }
+
+                "sleep-mode" => {
                     let status = Command::new("rundll32.exe")
                         .arg("powrprof.dll,SetSuspendState")
                         .arg("0")
@@ -152,22 +297,16 @@ async fn execute_bind(bind: &Bind, media: &mut Media, keyboard: &mut Keyboard, i
 
         // press keyboard shortcut:
         Action::Shortcut { shortcut: keys } => {
-            for key in keys {
-                keyboard.hold(key).await?;
-            }
+            keyboard.press_all(keys, true).await?;
 
             sleep(Duration::from_millis(100)).await;
 
-            for key in keys {
-                keyboard.release(key).await?;
-            }
+            keyboard.release_all(keys).await?;
         },
 
         // press keyboard key:
         Action::Press { press: keys } => {
-            for key in keys {
-                keyboard.press(key).await?;
-            }
+            keyboard.press_all(keys, false).await?;
         },
 
         // open website:
