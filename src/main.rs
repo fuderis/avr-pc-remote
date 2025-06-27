@@ -118,7 +118,7 @@ async fn run() -> Result<()> {
 static MENU_MODE: Lazy<Mutex<u8>> = Lazy::new(|| Mutex::new(0));
 const MOUSE_STEPS: (i32, i32) = (20, 50);
 const SCROLL_STEPS: (i32, i32) = (2, 5);
-const VOLUME_STEPS: (i32, i32) = (3, 7);
+const VOLUME_STEPS: (i32, i32) = (2, 5);
 
 /// Execute remote bind
 async fn execute_bind(bind: &Bind, media: &mut Media, keyboard: &mut Keyboard, mouse: &mut Mouse, is_repeated: bool) -> Result<()> {
@@ -155,7 +155,7 @@ async fn execute_bind(bind: &Bind, media: &mut Media, keyboard: &mut Keyboard, m
                 "nav-left" => {
                     match *MENU_MODE.lock().await {
                         0 => {
-                            let volume = media.decrease_audio_volume(if !is_repeated { VOLUME_STEPS.1 }else{ VOLUME_STEPS.0 }).await?;
+                            let volume = media.decrease_audio_volume(if is_repeated { VOLUME_STEPS.1 }else{ VOLUME_STEPS.0 }).await?;
                             info!("Set audio volume to {volume}%");
                         }
 
@@ -178,7 +178,7 @@ async fn execute_bind(bind: &Bind, media: &mut Media, keyboard: &mut Keyboard, m
                 "nav-right" => {
                     match *MENU_MODE.lock().await {
                         0 => {
-                            let volume = media.increase_audio_volume(if !is_repeated { VOLUME_STEPS.1 }else{ VOLUME_STEPS.0 }).await?;
+                            let volume = media.increase_audio_volume(if is_repeated { VOLUME_STEPS.1 }else{ VOLUME_STEPS.0 }).await?;
                             info!("Set audio volume to {volume}%");
                         }
 
