@@ -116,7 +116,7 @@ async fn run() -> Result<()> {
 }
 
 static MENU_MODE: Lazy<Mutex<u8>> = Lazy::new(|| Mutex::new(0));
-const MOUSE_STEPS: (i32, i32) = (20, 50);
+const MOUSE_STEPS: (i32, i32) = (30, 100);
 const SCROLL_STEPS: (i32, i32) = (2, 5);
 const VOLUME_STEPS: (i32, i32) = (2, 5);
 
